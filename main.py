@@ -27,8 +27,10 @@ import tempfile
 import asyncio
 from starlette.requests import Request
 import re
+import subprocess
 
 app = FastAPI()
+
 
 # Helper function to convert email to username
 def email_to_username(email: str) -> str:
@@ -154,22 +156,62 @@ async def translateAndtranscribe_audio(
     print("🎵 Audio denoising enabled (Resemble Enhance)")
     audio_for_processing = denoise_audio(UPLOAD_PATH, ENHANCED_PATH)
     
-    # Transcribe and translate
-    source_lang_whisper = nllb_to_whisper_lang_code(source_lang.split('_')[0]) if source_lang != "auto" else "auto"
-    text = transcribe(audio_for_processing, language=source_lang_whisper) if source_lang != "auto" else transcribe(audio_for_processing)
-
+    # 🚨 FIX: Use Google Speech Recognition for Hindi
+        # 🚨 FIX: Use Google Speech Recognition for Hindi
+    if source_lang == "hin_Deva":
+        print(f"🔊 USING GOOGLE SPEECH RECOGNITION FOR HINDI")
+        
+        # Convert audio to proper WAV format for Google Speech Recognition
+        CONVERTED_PATH = f"{user_dir}/converted.wav"
+        try:
+            # First convert to proper WAV format that Google can read
+            subprocess.run([
+                'ffmpeg', '-i', UPLOAD_PATH, 
+                '-acodec', 'pcm_s16le', 
+                '-ar', '16000', 
+                '-ac', '1', 
+                '-f', 'wav',  # Force WAV format
+                CONVERTED_PATH, 
+                '-y'
+            ], check=True, capture_output=True)
+            
+            # Verify the file was created and has content
+            if os.path.exists(CONVERTED_PATH) and os.path.getsize(CONVERTED_PATH) > 0:
+                audio_for_processing = CONVERTED_PATH
+                print("✅ Audio converted for Google Speech Recognition")
+            else:
+                raise Exception("Converted file is empty or doesn't exist")
+                
+        except Exception as e:
+            print(f"❌ Audio conversion failed: {e}")
+            print("🔄 Using original audio with Whisper")
+            audio_for_processing = UPLOAD_PATH
+            text = transcribe(audio_for_processing, language="hi")
+        else:
+            # Use Google for Hindi transcription
+            from pipeline.transcriber import transcribe_hindi
+            text = transcribe_hindi(audio_for_processing)
+            
+            # If Google fails, fall back to Whisper
+            if not text:
+                print("🔄 Google failed, falling back to Whisper Hindi")
+                text = transcribe(audio_for_processing, language="hi")
+            
+    elif source_lang != "auto":
+        source_lang_whisper = nllb_to_whisper_lang_code(source_lang.split('_')[0])
+        text = transcribe(audio_for_processing, language=source_lang_whisper)
+    else:
+        # Auto-detect language
+        text = transcribe(audio_for_processing)
     # Clean transcription text
     text = clean_transcription(text)
     print(f"📝 Cleaned transcription: {text[:100]}...")
 
-
     # Translate
     translated = translate(text, source_lang, target_lang) if source_lang != target_lang else text
     
-     #Clean translation text
+    # Clean translation text
     translated = clean_translation(translated)
-    #translated = "The first obession of people is cricket. How much you show, people will find it less. People said that the IPL will come and it will be over but."
-    #translated = "So i use to save money and I used to watch first day first show of your movie. But now what happens, you are so busy. You don't call for every movie, so I have taken this decision now."
     print(f"📝 Cleaned translation: {translated[:100]}...")
 
     return {
@@ -192,14 +234,14 @@ async def clone_audio(
     saved_accent_id: Optional[int] = Form(None),  # ID of saved accent to use
     db: Session = Depends(get_db)
 ):
+    print(f"🎙️ TTS Request for {user_email}")
+    print(f"   Translated: {translated_text}")
+    print(f"   Target lang: {target_lang}")
+    print(f"   Use saved accent: {use_saved_accent}")
+    print(f"   Saved accent ID: {saved_accent_id}")
+
     # Mark this user as having an active synthesis task
     active_synthesis_tasks[user_email] = True
-
-    # Log received parameters
-    print(f"🎙️ Synthesis request for {user_email}")
-    print(f"   Original text: {transcription[:100] if transcription else 'N/A'}...")
-    print(f"   Translated text: {translated_text[:100]}...")
-    print(f"   Using F5-TTS voice cloning")
 
     try:
         # Check if client disconnected
@@ -210,8 +252,26 @@ async def clone_audio(
         # Synthesize speech using username for paths
         username = email_to_username(user_email)
         user_dir = f"static/{username}"
+        os.makedirs(user_dir, exist_ok=True)
 
-        # Determine which accent audio to use for voice cloning
+        # Final output path
+        GENERATED_AUDIO_PATH = f"{user_dir}/generated_audio.wav"
+
+        # Convert language code
+        # DIRECT LANGUAGE MAPPING - Add this
+        lang_mapping = {
+            'eng_Latn': 'en', 'hin_Deva': 'hi', 'spa_Latn': 'es', 'fra_Latn': 'fr',
+            'deu_Latn': 'de', 'jpn_Jpan': 'ja', 'kor_Hang': 'ko', 'zho_Hans': 'zh',
+            'arb_Arab': 'ar', 'ita_Latn': 'it', 'por_Latn': 'pt', 'rus_Cyrl': 'ru',
+            'ben_Beng': 'bn', 'tam_Taml': 'ta', 'tel_Telu': 'te', 'kan_Knda': 'kn',
+            'mal_Mlym': 'ml', 'pan_Guru': 'pa', 'urd_Arab': 'ur', 'mar_Deva': 'mr',
+            'guj_Gujr': 'gu', 'nld_Latn': 'nl'
+        }
+
+        whisper_lang = lang_mapping.get(target_lang, 'en')
+        print(f"🌐 DIRECT LANGUAGE MAPPING: {target_lang} -> {whisper_lang}")
+
+        # FORCE DEFAULT VOICE WHEN NO ACCENT SELECTED
         if use_saved_accent and saved_accent_id:
             # Use saved accent from database
             user = get_user(db, user_email)
@@ -226,34 +286,34 @@ async def clone_audio(
             if not accent:
                 raise HTTPException(status_code=404, detail="Saved accent not found")
 
-            CLIP_PATH = accent.file_path
-            print(f"🎭 Using saved accent: {accent.accent_name}")
+            speaker_wav = accent.file_path
+            speaker_text = "accent reference audio"
+            print(f"🎭 Using SAVED ACCENT: {accent.accent_name}")
+            
+            # Generate speech with F5-TTS (voice cloning)
+            print(f"🎤 Starting F5-TTS VOICE CLONING...")
+            status = synthesize(
+                text=translated_text,
+                speaker_text=speaker_text,
+                speaker_wav=speaker_wav,
+                output_path=GENERATED_AUDIO_PATH,
+                lang=whisper_lang,
+                model="f5tts"
+            )
+            
         else:
-            # Use input audio from current recording for voice cloning
-            enhanced_path = f"{user_dir}/enhanced.wav"
-            source_audio = enhanced_path if os.path.exists(enhanced_path) else f"{user_dir}/original.wav"
-            CLIP_PATH = f"{user_dir}/clip.wav"
-            clip_audio(source_audio, CLIP_PATH)
-            print(f"🎤 Using input audio for voice cloning")
-
-        # Check if client disconnected before TTS
-        if await request.is_disconnected():
-            print(f"❌ Client disconnected for {user_email}, aborting synthesis")
-            raise HTTPException(status_code=499, detail="Client disconnected")
-
-        # Final output path
-        GENERATED_AUDIO_PATH = f"{user_dir}/generated_audio.wav"
-
-        # Generate speech with F5-TTS
-        print(f"🎤 Starting F5-TTS voice cloning for {user_email}")
-        status = synthesize(
-            text=translated_text,
-            speaker_text=transcription,
-            speaker_wav=CLIP_PATH,
-            output_path=GENERATED_AUDIO_PATH,
-            lang=nllb_to_whisper_lang_code(target_lang.split('_')[0]),
-            model="f5tts"
-        )
+            # FORCE DEFAULT SYSTEM VOICE - NO VOICE CLONING
+            print(f"🔊 FORCING DEFAULT SYSTEM VOICE - No voice cloning")
+            
+            # Generate speech with DEFAULT VOICE (no speaker_wav)
+            status = synthesize(
+                text=translated_text,
+                speaker_text="",
+                speaker_wav="",  # EMPTY = default voice
+                output_path=GENERATED_AUDIO_PATH,
+                lang=whisper_lang,
+                model="gtts"  # Force gTTS for default voice
+            )
 
         # Check if client disconnected after TTS
         if await request.is_disconnected():
@@ -262,17 +322,16 @@ async def clone_audio(
 
         print(f"✅ Synthesis complete for {user_email}")
         return {
-            # "translated_audio": GENERATED_AUDIO_PATH,
             "translated_audio": f"api/static/{username}/generated_audio.wav",
             "synthesis_status": status,
-            "model_used": status.get("model", "f5tts")
+            "model_used": status.get("model", "unknown"),
+            "voice_used": "saved_accent" if use_saved_accent else "default_system_voice"
         }
     finally:
         # Always clean up the active task marker
         if user_email in active_synthesis_tasks:
             del active_synthesis_tasks[user_email]
             print(f"🧹 Cleaned up synthesis task for {user_email}")
-
 
 
 @app.post("/api/accent_upload/")
@@ -348,11 +407,14 @@ async def save_accent(
         tmp.flush()
         clip_audio(tmp.name, file_path)
 
+    whisper_lang = nllb_to_whisper_lang_code(lang.split('_')[0])
+    print(f"🌐 Language conversion: {lang} -> {whisper_lang}")
+
     # Save to database
     saved_accent = SavedAccent(
         user_id=user.id,
         accent_name=accent_name,
-        language_code=lang_code,
+        language_code=whisper_lang,
         file_path=file_path
     )
     db.add(saved_accent)
@@ -382,7 +444,7 @@ async def get_saved_accents(
         {
             "id": accent.id,
             "name": accent.accent_name,
-            "language": accent.language_code,
+            "language": accent.language_code,  # ✅ This will now be "hi" instead of "hin_Deva"
             "file_path": accent.file_path,
             "created_at": accent.created_at.isoformat()
         }

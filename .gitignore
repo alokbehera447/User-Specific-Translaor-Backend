@@ -20,3 +20,4 @@ __pycache__/
 *.pyc
 static/
 accent_lib/
+requirements.txt

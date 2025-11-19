@@ -1,0 +1,101 @@
+1. System Dependencies
+bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y ffmpeg mecab mecab-ipadic-utf8 libmecab-dev python3.11 python3.11-venv python3.11-dev
+
+# OR Arch Linux/Manjaro  
+sudo pacman -S --noconfirm ffmpeg mecab python python-pip
+
+# OR macOS
+brew install ffmpeg mecab mecab-ipadic python@3.11
+2. Virtual Environment Setup
+bash
+# Create and activate virtual environment
+python3.11 -m venv venv311
+source venv311/bin/activate  # Linux/macOS
+# venv311\Scripts\activate  # Windows
+
+# Verify
+python --version  # Should show Python 3.11.x
+which python      # Should point to venv311
+3. Install PyTorch (CPU Version - Most Compatible)
+bash
+pip install torch==2.2.2+cpu torchvision==0.17.2+cpu torchaudio==2.2.2+cpu --index-url https://download.pytorch.org/whl/cpu
+4. Core Python Dependencies
+bash
+# Create requirements file
+cat > requirements_core.txt << 'EOF'
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.1.2
+gTTS==2.3.2
+pydub==0.25.1
+speechrecognition==3.10.0
+requests==2.31.0
+python-dotenv==1.0.0
+mecab-python3==1.0.8
+EOF
+
+pip install -r requirements_core.txt
+5. AI/ML Packages (Install Carefully)
+bash
+# Install one by one to avoid conflicts
+pip install openai-whisper==20231117 --no-deps
+pip install transformers==4.35.2 --no-deps
+pip install sentencepiece==0.1.99
+pip install accelerate==0.24.1
+
+# Install their dependencies
+pip install tiktoken==0.5.2 numba==0.58.1 more-itertools
+pip install tokenizers==0.15.0 safetensors==0.4.1
+6. f5-tts Installation
+bash
+# Install f5-tts without dependencies first
+pip install f5-tts==1.1.9 --no-deps
+
+# Install its dependencies
+pip install jieba pypinyin unidecode tomli transformers-stream-generator torchdiffeq vocos
+pip install bitsandbytes cached_path datasets ema_pytorch librosa soundfile wandb x-transformers
+
+# Fix version conflicts
+pip install accelerate==0.33.0
+pip install pydantic==2.10.6
+pip install gradio>=5.0.0 hydra-core>=1.3.0 matplotlib
+7. Resemble Enhance (Audio Denoising)
+bash
+git clone https://github.com/resemble-ai/resemble-enhance.git
+cd resemble-enhance
+pip install -e .
+cd ..
+8. Japanese Support (MeCab Dictionary)
+bash
+pip install unidic
+python -m unidic download
+
+# Set environment variable (add to ~/.bashrc for permanent)
+export MECABRC=/usr/local/etc/mecabrc
+# OR if that doesn't work:
+# export MECABRC=$(python -c "import unidic; print(unidic.__path__[0])")/dicdir/mecabrc
+9. Verification Commands
+bash
+# Test all installations
+python -c "
+import torch, whisper, transformers, f5_tts, resemble_enhance, MeCab, unidic
+from gtts import gTTS
+import speech_recognition as sr
+print('✓ All core packages imported successfully')
+"
+
+# Test Japanese processing
+python -c "
+import MeCab
+tagger = MeCab.Tagger()
+result = tagger.parse('こんにちは')
+print('Japanese test:', result.split('\n')[0])
+"

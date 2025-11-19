@@ -1,8 +1,30 @@
 import whisper
 import subprocess
 import os
+import speech_recognition as sr
 
 model_whisper = whisper.load_model("base")
+
+def transcribe_hindi(audio_path: str) -> str:
+    """Transcribe Hindi audio using Google Speech Recognition"""
+    recognizer = sr.Recognizer()
+    
+    try:
+        print("🎯 Using Google Speech Recognition for Hindi...")
+        with sr.AudioFile(audio_path) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language='hi-IN')
+            print(f"✅ Google Hindi Transcription: {text}")
+            return text
+    except sr.UnknownValueError:
+        print("❌ Google could not understand Hindi audio")
+        return ""
+    except sr.RequestError as e:
+        print(f"❌ Google Speech Recognition error: {e}")
+        return ""
+    except Exception as e:
+        print(f"❌ Google Speech Recognition failed: {e}")
+        return ""
 
 def transcribe(audio_path: str, language: str = "en") -> str:
     """
