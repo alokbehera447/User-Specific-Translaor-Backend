@@ -1,10 +1,17 @@
-"""
-Simplified TTS Generator - F5-TTS with gTTS fallback
-"""
-
 from gtts import gTTS
 import os
 import sys
+from indic_transliteration import sanscript
+from indic_transliteration.sanscript import transliterate
+import re
+from dotenv import load_dotenv
+# import google.generativeai as genai
+import google.genai as genai
+
+load_dotenv()
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+
 
 # Add parent directory to path to import from main
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -17,24 +24,74 @@ except ImportError:
     print("⚠️ F5-TTS not available. Install with: pip install f5-tts")
 
 # Import Hindi to Romanized converter
-try:
-    from main import hindi_to_romanized
-except ImportError:
+# try:
+#     from main import hindi_to_romanized
+# except ImportError:
     # Fallback function if import fails
-    def hindi_to_romanized(text: str) -> str:
-    # """Convert Hindi text to Romanized Hindi using proper library"""
-        try:
-            from indic_transliteration import sanscript
-            from indic_transliteration.sanscript import transliterate
+    # def hindi_to_romanized(text: str) -> str:
+    # # """Convert Hindi text to Romanized Hindi using proper library"""
+    #     try:
+    #         from indic_transliteration import sanscript
+    #         from indic_transliteration.sanscript import transliterate
 
-            # Convert Hindi (Devanagari) to Romanized
-            romanized = transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
-            print(f"🔤 Library Romanized: '{text}' -> '{romanized}'")
-            return romanized
-        except ImportError:
-            print("❌ indic-transliteration not installed, using fallback")
-            # Fallback simple mapping
-            return text.replace('हैलो', 'hello').replace('तुम', 'tum').replace('क्या', 'kya')
+    #         # Convert Hindi (Devanagari) to Romanized
+    #         romanized = transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS)
+    #         print(f"🔤 Library Romanized: '{text}' -> '{romanized}'")
+    #         return romanized
+# def hindi_to_phonetic(text: str) -> str:
+#     """
+#     Convert Hindi (Devanagari) text to phonetic IPA for TTS
+#     """
+#     import epitran
+#     epi = epitran.Epitran("hin-Deva")
+#     phonetic = epi.transliterate(text)
+#     print(f"🔤 Phonetic Hindi: '{text}' -> '{phonetic}'")
+#     return phonetic
+if GEMINI_API_KEY:
+    import google.genai as genai
+    client = genai.Client(api_key=GEMINI_API_KEY)
+else:
+    print("⚠️ GEMINI_API_KEY not found in environment variables")
+
+
+def hindi_to_simple_roman(text: str) -> str:
+    print(f"🔄 Hindi to Roman: Input = '{text}'")
+    
+    text = text.strip()
+    
+    if not any('\u0900' <= char <= '\u097F' for char in text):
+        return text.lower()
+    
+    # Try Gemini API first
+    if GEMINI_API_KEY:
+        try:
+            import google.genai as genai
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            
+            prompt = f"""Convert this Hindi text to Romanized Hindi for TTS.
+            Use simple phonetic spelling. Output only romanized text.
+            
+            Hindi: "{text}"
+            Romanized: """
+            
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[{
+                    "role": "user", 
+                    "parts": [{"text": prompt}]
+                }]
+            )
+            
+            roman = response.text.strip()
+            roman = roman.strip('"\'')
+            print(f"✅ Gemini Romanized: '{text}' -> '{roman}'")
+            return roman.lower()
+            
+        except Exception as e:
+            print(f"❌ Gemini API failed: {e}")
+    
+
+
 
 def synthesize(text: str, speaker_text: str, speaker_wav: str, output_path: str, lang: str, model: str = "f5tts"):
     """
@@ -47,12 +104,12 @@ def synthesize(text: str, speaker_text: str, speaker_wav: str, output_path: str,
     
     # 🚨 ONLY convert Hindi text to Romanized for F5-TTS voice cloning
     if model == "f5tts" and speaker_wav and lang == 'hi' and any('\u0900' <= char <= '\u097F' for char in text):
-        romanized_text = hindi_to_romanized(text)
-        print(f"🔤 Hindi to Romanized for F5-TTS: '{text}' -> '{romanized_text}'")
-        text = romanized_text
+        phonetic_text = hindi_to_simple_roman(text)
+        print(f"🔤 Hindi to Romanized for F5-TTS: '{text}' -> '{phonetic_text}'")
+        text = phonetic_text
         # Also update speaker_text if it's the same
         if speaker_text and any('\u0900' <= char <= '\u097F' for char in speaker_text):
-            speaker_text = hindi_to_romanized(speaker_text)
+            speaker_text = hindi_to_simple_roman(speaker_text)
     
     # If no speaker_wav provided, use DEFAULT VOICE (gTTS) - USE ORIGINAL HINDI TEXT
     if not speaker_wav:

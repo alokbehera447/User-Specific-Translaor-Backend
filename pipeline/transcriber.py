@@ -1,14 +1,29 @@
 import subprocess
 import os
 import speech_recognition as sr
+# import torch
 from faster_whisper import WhisperModel
 
 # Load model ONCE (GPU)
+# _model = WhisperModel(
+#     "base",
+#     device="cuda",
+#     compute_type="float16"  # best for RTX 4090
+# )
+
 _model = WhisperModel(
-    "base",
-    device="cuda",
-    compute_type="float16"  # best for RTX 4090
+    "medium",
+    device="cpu",
+    compute_type="int8"
 )
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+# compute_type = "float16" if device == "cuda" else "int8"
+
+# _model = WhisperModel(
+#     "medium",
+#     device=device,
+#     compute_type=compute_type
+# )
 
 def transcribe_hindi(audio_path: str) -> str:
     """Transcribe Hindi audio using Google Speech Recognition"""

@@ -64,6 +64,7 @@ pip install jieba pypinyin unidecode tomli transformers-stream-generator torchdi
 pip install bitsandbytes cached_path datasets ema_pytorch librosa soundfile wandb x-transformers
 
 # Fix version conflicts
+pip install google-genai
 pip install accelerate==0.33.0
 pip install pydantic==2.10.6
 pip install gradio>=5.0.0 hydra-core>=1.3.0 matplotlib

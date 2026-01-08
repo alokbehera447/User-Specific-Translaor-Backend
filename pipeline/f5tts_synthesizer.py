@@ -1,4 +1,6 @@
+# from pipeline.tts_generator import hindi_to_phonetic
 import torch
+
 import torchaudio
 import os
 import re
@@ -119,7 +121,11 @@ class F5TTSSynthesizer:
             ref_file=reference_audio_path,
             ref_text=reference_text,
             gen_text=text,
-            remove_silence=True
+            remove_silence=True,
+            # speed=0.7,
+            # pitch=1.0,
+            # energy=1.0,
+            # temperature=0.7
         )
 
         # Convert numpy array to torch tensor if needed
@@ -149,6 +155,8 @@ def synthesize_with_f5tts(text: str, speaker_wav: str, output_path: str, lang: s
     Returns:
         bool: True if synthesis successful
     """
+    from pipeline.tts_generator import hindi_to_simple_roman
+
     try:
         if not F5TTS_AVAILABLE:
             raise ImportError("F5-TTS not available")
@@ -164,14 +172,22 @@ def synthesize_with_f5tts(text: str, speaker_wav: str, output_path: str, lang: s
         print("Transcribing reference audio...")
         ref_audio_path, ref_text = trim_and_transcribe(speaker_wav, max_duration=11)
 
-        if ref_text in ["Could not understand audio", "Transcription failed"]:
-            print(f"Warning: Reference transcription failed, using placeholder")
-            ref_text = "This is a sample reference audio for voice cloning."
+        if ref_text not in ["Could not understand audio", "Transcription failed"]:
+            if lang == "hi" and any('\u0900' <= c <= '\u097F' for c in ref_text):
+                ref_text = hindi_to_simple_roman(ref_text)
+        else:
+            ref_text = "sample reference audio"
+
 
         print(f"Reference transcription: {ref_text[:100]}...")
 
         # Split text into sentences for better quality
-        sentences = split_into_sentences(text)
+        # sentences = split_into_sentences(text)
+        if lang == "hi":
+            sentences = [text]
+        else:
+            sentences = split_into_sentences(text)
+
         print(sentences," ", ref_audio_path, " ", ref_text, " ",output_path)
 
         if len(sentences) > 1:
